@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Google Maps API Directions</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBzoypj4Jjb_t9vusQLhAeaFiFe5A3UNC0&libraries=places&callback=initialize"></script>
+
+</head>
+<body>
+<div>
+    <label for="start">출발지:</label>
+    <input type="text" id="start" name="start"><br><br>
+    <label for="end">목적지:</label>
+    <input type="text" id="end" name="end"><br>
+    <ul id="autocompleteList" style="display: none;"></ul>
+    <br>
+    <button id="submitBtn">길 찾기</button>
+</div>
+<br>
+<div id="directionsPanel"></div>
+<br>
+<div>
+  <label for="destination">목적지:</label>
+  <input type="text" id="destination" name="destination">
+  <button id="add-destination-btn">추가</button>
+  <ul id="destination-list"></ul>
+</div>
+<br>
+<div id="endList"></div>
+<div id="map_canvas" style="width: 100%; height: 500px;"></div>
+<script>
+    var directionsService = new google.maps.DirectionsService();
+    var map;
+    var endMarkers = [];
+    var endList = [];
+    var autocompleteStart;
+    var autocompleteEnd;
+
+    function initialize() {
+        var mapOptions = {
+            zoom: 14,
+            center: new google.maps.LatLng(37.5665, 126.9780),
+            mapTypeId: google.maps.MapTypeId.ROADMAP
+        };
+        map = new google.maps.Map(document.getElementById('map_canvas'), mapOptions);
+
+        // 출발지 자동완성
+        autocompleteStart = new google.maps.places.Autocomplete(
+            document.getElementById('start'), {types: ['geocode']});
+        autocompleteStart.addListener('place_changed', function () {
+            var place = autocompleteStart.getPlace();
+            if (!place.geometry) {
+                alert("출발지를 선택하세요.");
+                return;
+            }
+            map.setCenter(place.geometry.location);
+        });
+
+        // 목적지 자동완성
+        autocompleteEnd = new google.maps.places.Autocomplete(
+            document.getElementById('end'), {types: ['geocode']});
+        autocompleteEnd.addListener('place_changed', function () {
+            var place = autocompleteEnd.getPlace();
+            if (!place.geometry) {
+                alert("목적지를 선택하세요.");
+                return;
+            }
+        });
+
+        // 목적지 추가 자동완성
+        autocompleteEnd = new google.maps.places.Autocomplete(
+            document.getElementById('destination'), {types: ['geocode']});
+        autocompleteEnd.addListener('place_changed', function () {
+            var place = autocompleteEnd.getPlace();
+            if (!place.geometry) {
+                alert("목적지를 선택하세요.");
+                return;
+            }
+        })
+
+
+// 목적지 자동완성 리스트 표시
+        $("#end").on("input", function () {
+            var input = $(this).val();
+            if (input.length >= 4) {
+                var request = {
+                    input: input,
+                    types: ['geocode']
+                };
+                var service = new google.maps.places.AutocompleteService();
+                service.getPlacePredictions(request, function (results, status) {
+                    if (status == google.maps.places.PlacesServiceStatus.OK) {
+                        var autocompleteList = $("#autocompleteList");
+                        autocompleteList.empty();
+                        if (results.length > 0) {
+                            for (var i = 0; i < results.length; i++) {
+                                autocompleteList.append("<li class='autocompleteItem'>" + results[i].description + "</li>");
+                            }
+                            autocompleteList.css("display", "block"); // 자동완성 리스트 보이게 설정
+                        } else {
+                            autocompleteList.css("display", "none");
+                        }
+                    }
+                });
+            } else {
+                $("#autocompleteList").empty().css("display", "none"); // 입력 길이가 4보다 작으면 자동완성 리스트 숨김
+            }
+        });
+
+// 자동완성 리스트 아이템 클릭 시 해당 주소로 지도 이동
+        $(document).on("click", ".autocompleteItem", function () {
+            var address = $(this).text();
+            autocompleteEnd.set('place', null);
+            $("#end").val(address);
+            $("#autocompleteList").empty().css("display", "none"); // 자동완성 리스트 숨김
+            calculateRoute(); // 길찾기
+        });
+
+
+        // 목적지 추가 버튼 클릭 이벤트
+        $("#addBtn").on("click", ".autocompleteItem", function () {
+            var end = $("#addEnd").val();
+            if (end) {
+                endList.push(end);
+                $("#endList").append("<div>" + end + "</div>");
+                $("#addEnd").val("");
+                addEndMarker(end);
+                calcRoute();
+            }
+        });
+
+        // 길찾기 버튼 클릭 이벤트
+        $("#submitBtn").on("click", function () {
+            calcRoute();
+        });
+    }
+
+    function addEndMarker(end) {
+        var geocoder = new google.maps.Geocoder();
+        geocoder.geocode({"address": end}, function (results, status) {
+            if (status == google.maps.GeocoderStatus.OK) {
+                var marker = new google.maps.Marker({
+                    map: map,
+                    position: results[0].geometry.location
+                });
+                endMarkers.push(marker);
+            }
+        });
+    }
+
+    // 목적지 추가 버튼 클릭 시 이벤트 핸들러 함수
+    function addDestination() {
+        const destinationInput = document.getElementById('destination');
+        const destinationList = document.getElementById('destination-list');
+        const destination = destinationInput.value.trim();
+
+        if (destination !== '') {
+            // 새로운 목적지를 생성하여 목적지 리스트에 추가
+            const newDestination = document.createElement('li');
+            newDestination.textContent = destination;
+            destinationList.appendChild(newDestination);
+
+            // 입력 필드 초기화
+            destinationInput.value = '';
+        }
+    }
+
+// 목적지 추가 버튼 클릭 이벤트 핸들러 등록
+const addDestinationBtn = document.getElementById('add-destination-btn');
+addDestinationBtn.addEventListener('click', addDestination);
+
+    function calcRoute() {
+        var start = $("#start").val();
+        var end = $("#end").val();
+        if (start && end) {
+            var waypts = [];
+            for (var i = 0; i < endList.length; i++) {
+                waypts.push({
+                    location: endList[i],
+                    stopover: true
+                });
+            }
+            var request = {
+                origin: start,
+                destination: end,
+                waypoints: waypts,
+                travelMode: google.maps.TravelMode.DRIVING
+            };
+            directionsService.route(request, function (result, status) {
+                if (status == google.maps.DirectionsStatus.OK) {
+                    var directionsDisplay = new google.maps.DirectionsRenderer();
+                    directionsDisplay.setMap(map);
+                    directionsDisplay.setPanel(document.getElementById('directionsPanel'));
+                    directionsDisplay.setDirections(result);
+                }
+            });
+        }
+    }
+
+    google.maps.event.addDomListener(window, 'load', initialize);
+</script>
+</body>
+</html>
